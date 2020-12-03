@@ -1,0 +1,53 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30011.22
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{F7DC2E7D-2AE4-46E3-9143-9B051F13C46B}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		.gitignore = .gitignore
+		Directory.Build.props = Directory.Build.props
+		Directory.Build.targets = Directory.Build.targets
+		RasterCostDistance.sln.DotSettings = RasterCostDistance.sln.DotSettings
+		README.md = README.md
+		stylecop.json = stylecop.json
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{56950AF7-CACE-4177-BDDB-ADE4F2633FB8}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RasterCostDistance", "src\RasterCostDistance\RasterCostDistance.csproj", "{BEA87665-4307-4F49-9F47-6C59C90C089A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Debug|x64.Build.0 = Debug|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Debug|x86.Build.0 = Debug|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Release|x64.ActiveCfg = Release|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Release|x64.Build.0 = Release|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Release|x86.ActiveCfg = Release|Any CPU
+		{BEA87665-4307-4F49-9F47-6C59C90C089A}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{BEA87665-4307-4F49-9F47-6C59C90C089A} = {56950AF7-CACE-4177-BDDB-ADE4F2633FB8}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {7d6848dd-bbca-45bb-9351-41c967e6c078}
+	EndGlobalSection
+EndGlobal
