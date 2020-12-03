@@ -5,10 +5,10 @@
 namespace RasterCostDistance
 {
 	using System;
-	using System.Collections.Generic;
 	using System.Diagnostics;
 	using System.IO;
-	using System.Linq;
+	using System.Threading;
+	using System.Threading.Tasks;
 	using MaxRev.Gdal.Core;
 	using OSGeo.GDAL;
 
@@ -43,7 +43,7 @@ namespace RasterCostDistance
 			GdalBase.ConfigureAll();
 			Stopwatch stopwatch = Stopwatch.StartNew();
 
-			List<int> raster = Program.LoadRaster();
+			int[] raster = Program.LoadRaster();
 
 			if (raster is null)
 			{
@@ -63,7 +63,7 @@ namespace RasterCostDistance
 
 				iteration++;
 			}
-			while (changes > 0 && iteration < 5);
+			while (changes > 0);
 
 			Program.WriteRaster(raster);
 
@@ -71,7 +71,7 @@ namespace RasterCostDistance
 			Console.WriteLine(stopwatch.Elapsed + " -> Raster saved");
 		}
 
-		private static int FindNeighbors(List<int> raster, int currentMax)
+		private static int FindNeighbors(int[] raster, int currentMax)
 		{
 			int changes = 0;
 
@@ -82,20 +82,21 @@ namespace RasterCostDistance
 				newValue = Program.Maximum;
 			}
 
-			for (int i = 0; i < raster.Count; i++)
+			Parallel.For(0, raster.Length, (i) =>
 			{
 				if (raster[i] == currentMax)
 				{
-					changes += Program.UpdateNeighbors(raster, i, newValue);
+					int c = Program.UpdateNeighbors(raster, i, newValue);
+					Interlocked.Add(ref changes, c);
 				}
-			}
+			});
 
 			return changes;
 		}
 
 		private static (int x, int y) IndexToRowsCols(int i) => (i % Program.Cols, i / Program.Cols);
 
-		private static List<int> LoadRaster()
+		private static int[] LoadRaster()
 		{
 			if (!File.Exists(Program.InputFilePath))
 			{
@@ -116,7 +117,7 @@ namespace RasterCostDistance
 				int[] buffer = new int[band.XSize * band.YSize];
 				band.ReadRaster(0, 0, band.XSize, band.YSize, buffer, band.XSize, band.YSize, 0, 0);
 
-				return buffer.ToList();
+				return buffer;
 			}
 #pragma warning disable CA1031 // Do not catch general exception types
 			catch (Exception e)
@@ -130,21 +131,26 @@ namespace RasterCostDistance
 		private static int RowsColsToIndex(int x, int y) => x + (y * Program.Cols);
 
 		// Update the neighbor if it still has its default setting (0)
-		private static int UpdateNeighbor(List<int> raster, int x, int y, int newValue)
+		private static int UpdateNeighbor(int[] raster, int x, int y, int newValue)
 		{
 			int i = Program.RowsColsToIndex(x, y);
 
 			if (raster[i] == 0)
 			{
-				raster[i] = newValue;
-				return 1;
+				// Set newValue if array item is still 0 (thread safe)
+				int originalValue = Interlocked.CompareExchange(ref raster[i], newValue, 0);
+
+				if (originalValue == 0)
+				{
+					return 1;
+				}
 			}
 
 			return 0;
 		}
 
 		// Updating N8 neighbors
-		private static int UpdateNeighbors(List<int> raster, int i, int newValue)
+		private static int UpdateNeighbors(int[] raster, int i, int newValue)
 		{
 			int changes = 0;
 			(int x, int y) = Program.IndexToRowsCols(i);
@@ -192,7 +198,7 @@ namespace RasterCostDistance
 			return changes;
 		}
 
-		private static void WriteRaster(List<int> raster)
+		private static void WriteRaster(int[] raster)
 		{
 			if (!Directory.Exists(Program.OutputDirectory))
 			{
@@ -208,7 +214,7 @@ namespace RasterCostDistance
 				new[] { "TFW=YES", "COMPRESS=DEFLATE" });
 			dataset.SetProjection(Program.Projection);
 			Band band = dataset.GetRasterBand(1);
-			band.WriteRaster(0, 0, Program.Cols, Program.Rows, raster.ToArray(), Program.Cols, Program.Rows, 0, 0);
+			band.WriteRaster(0, 0, Program.Cols, Program.Rows, raster, Program.Cols, Program.Rows, 0, 0);
 
 			if (File.Exists($@"{Program.InputDirectory}/{Program.InputFileName}.tfw"))
 			{
