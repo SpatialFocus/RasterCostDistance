@@ -14,6 +14,18 @@ namespace RasterCostDistance
 
 	public sealed class Program
 	{
+		private static int cols;
+
+		private static Driver driver;
+
+		private static bool hasNoDataValue;
+
+		private static double noDataValue;
+
+		private static string projection;
+
+		private static int rows;
+
 		private static string Extension => "tif";
 
 		private static string InputDirectory { get; } = @"data";
@@ -22,6 +34,8 @@ namespace RasterCostDistance
 
 		private static string InputFilePath { get; } = @$"{Program.InputDirectory}/{Program.InputFileName}.{Program.Extension}";
 
+		// Maximum cost distance, areas further away will be filled with this value
+		// Use 0 to disable a limit
 		private static int Maximum => 250;
 
 		private static string OutputDirectory { get; } = @"data/results";
@@ -30,13 +44,7 @@ namespace RasterCostDistance
 
 		private static string OutputFilePath { get; } = @$"{Program.OutputDirectory}/{Program.OutputFileName}.{Program.Extension}";
 
-		private static int Cols { get; set; }
-
-		private static Driver Driver { get; set; }
-
-		private static string Projection { get; set; }
-
-		private static int Rows { get; set; }
+		private static string[] OutputOptions { get; } = { "TFW=YES", "COMPRESS=DEFLATE" };
 
 		public static void Main()
 		{
@@ -51,7 +59,7 @@ namespace RasterCostDistance
 				return;
 			}
 
-			Console.WriteLine(stopwatch.Elapsed + " -> Raster loaded");
+			Console.WriteLine($"{stopwatch.Elapsed} -> Raster loaded");
 
 			int changes;
 			int iteration = 1;
@@ -59,7 +67,7 @@ namespace RasterCostDistance
 			do
 			{
 				changes = Program.FindNeighbors(raster, iteration);
-				Console.WriteLine(stopwatch.Elapsed + $"-> Iteration {iteration}: {changes} changes.");
+				Console.WriteLine($"{stopwatch.Elapsed} -> Iteration {iteration}: {changes} changes.");
 
 				iteration++;
 			}
@@ -68,7 +76,7 @@ namespace RasterCostDistance
 			Program.WriteRaster(raster);
 
 			stopwatch.Stop();
-			Console.WriteLine(stopwatch.Elapsed + " -> Raster saved");
+			Console.WriteLine($"{stopwatch.Elapsed} -> Raster saved");
 		}
 
 		private static int FindNeighbors(int[] raster, int currentMax)
@@ -77,12 +85,13 @@ namespace RasterCostDistance
 
 			int newValue = currentMax + 1;
 
-			if (newValue > Program.Maximum)
+			if (Program.Maximum > 0 && newValue > Program.Maximum)
 			{
 				newValue = Program.Maximum;
+				currentMax = Program.Maximum;
 			}
 
-			Parallel.For(0, raster.Length, (i) =>
+			Parallel.For(0, raster.Length, i =>
 			{
 				if (raster[i] == currentMax)
 				{
@@ -94,7 +103,7 @@ namespace RasterCostDistance
 			return changes;
 		}
 
-		private static (int x, int y) IndexToRowsCols(int i) => (i % Program.Cols, i / Program.Cols);
+		private static (int x, int y) IndexToRowsCols(int i) => (i % Program.cols, i / Program.cols);
 
 		private static int[] LoadRaster()
 		{
@@ -109,10 +118,12 @@ namespace RasterCostDistance
 				Band band = dataset.GetRasterBand(1);
 
 				// Get and store raster metadata
-				Program.Driver = dataset.GetDriver();
-				Program.Projection = dataset.GetProjection();
-				Program.Cols = band.XSize;
-				Program.Rows = band.YSize;
+				Program.driver = dataset.GetDriver();
+				Program.projection = dataset.GetProjection();
+				Program.cols = band.XSize;
+				Program.rows = band.YSize;
+				band.GetNoDataValue(out Program.noDataValue, out int hasVal);
+				Program.hasNoDataValue = hasVal == 1;
 
 				int[] buffer = new int[band.XSize * band.YSize];
 				band.ReadRaster(0, 0, band.XSize, band.YSize, buffer, band.XSize, band.YSize, 0, 0);
@@ -128,7 +139,7 @@ namespace RasterCostDistance
 #pragma warning restore CA1031 // Do not catch general exception types
 		}
 
-		private static int RowsColsToIndex(int x, int y) => x + (y * Program.Cols);
+		private static int RowsColsToIndex(int x, int y) => x + (y * Program.cols);
 
 		// Update the neighbor if it still has its default setting (0)
 		private static int UpdateNeighbor(int[] raster, int x, int y, int newValue)
@@ -165,7 +176,7 @@ namespace RasterCostDistance
 				changes += Program.UpdateNeighbor(raster, x - 1, y, newValue);
 			}
 
-			if (x > 0 && y < Program.Rows - 1)
+			if (x > 0 && y < Program.rows - 1)
 			{
 				changes += Program.UpdateNeighbor(raster, x - 1, y + 1, newValue);
 			}
@@ -175,22 +186,22 @@ namespace RasterCostDistance
 				changes += Program.UpdateNeighbor(raster, x, y - 1, newValue);
 			}
 
-			if (y < Program.Rows - 1)
+			if (y < Program.rows - 1)
 			{
 				changes += Program.UpdateNeighbor(raster, x, y + 1, newValue);
 			}
 
-			if (x < Program.Cols - 1 && y > 0)
+			if (x < Program.cols - 1 && y > 0)
 			{
 				changes += Program.UpdateNeighbor(raster, x + 1, y - 1, newValue);
 			}
 
-			if (x < Program.Cols - 1)
+			if (x < Program.cols - 1)
 			{
 				changes += Program.UpdateNeighbor(raster, x + 1, y, newValue);
 			}
 
-			if (x < Program.Cols - 1 && y < Program.Rows - 1)
+			if (x < Program.cols - 1 && y < Program.rows - 1)
 			{
 				changes += Program.UpdateNeighbor(raster, x + 1, y + 1, newValue);
 			}
@@ -210,11 +221,17 @@ namespace RasterCostDistance
 				File.Delete(Program.OutputFilePath);
 			}
 
-			using Dataset dataset = Program.Driver.Create(Program.OutputFilePath, Program.Cols, Program.Rows, 1, DataType.GDT_Int32,
-				new[] { "TFW=YES", "COMPRESS=DEFLATE" });
-			dataset.SetProjection(Program.Projection);
+			using Dataset dataset = Program.driver.Create(Program.OutputFilePath, Program.cols, Program.rows, 1, DataType.GDT_Int32,
+				Program.OutputOptions);
+			dataset.SetProjection(Program.projection);
 			Band band = dataset.GetRasterBand(1);
-			band.WriteRaster(0, 0, Program.Cols, Program.Rows, raster, Program.Cols, Program.Rows, 0, 0);
+
+			if (Program.hasNoDataValue)
+			{
+				band.SetNoDataValue(Program.noDataValue);
+			}
+
+			band.WriteRaster(0, 0, Program.cols, Program.rows, raster, Program.cols, Program.rows, 0, 0);
 
 			if (File.Exists($@"{Program.InputDirectory}/{Program.InputFileName}.tfw"))
 			{
