@@ -40,7 +40,7 @@ namespace RasterCostDistance
 
 		private static string OutputDirectory { get; } = @"data/results";
 
-		private static string OutputFileName { get; } = "settlements_clipped_250max";
+		private static string OutputFileName { get; } = "settlements_clipped_250max_b";
 
 		private static string OutputFilePath { get; } = @$"{Program.OutputDirectory}/{Program.OutputFileName}.{Program.Extension}";
 
@@ -66,12 +66,18 @@ namespace RasterCostDistance
 
 			do
 			{
-				changes = Program.FindNeighbors(raster, iteration);
+				changes = Program.ExpandToNeighbors(raster, iteration);
 				Console.WriteLine($"{stopwatch.Elapsed} -> Iteration {iteration}: {changes} changes.");
 
 				iteration++;
 			}
-			while (changes > 0);
+			while (changes > 0 && (Program.Maximum == 0 || iteration < Program.Maximum));
+
+			if (changes != 0 && Program.Maximum > 0)
+			{
+				changes = Program.FillRemaining(raster);
+				Console.WriteLine($"{stopwatch.Elapsed} -> Remaining cells updated to {Program.Maximum}: {changes} changes.");
+			}
 
 			Program.WriteRaster(raster);
 
@@ -79,7 +85,7 @@ namespace RasterCostDistance
 			Console.WriteLine($"{stopwatch.Elapsed} -> Raster saved");
 		}
 
-		private static int FindNeighbors(int[] raster, int currentMax)
+		private static int ExpandToNeighbors(int[] raster, int currentMax)
 		{
 			int changes = 0;
 
@@ -97,6 +103,26 @@ namespace RasterCostDistance
 				{
 					int c = Program.UpdateNeighbors(raster, i, newValue);
 					Interlocked.Add(ref changes, c);
+				}
+			});
+
+			return changes;
+		}
+
+		private static int FillRemaining(int[] raster)
+		{
+			int changes = 0;
+
+			Parallel.For(0, raster.Length, i =>
+			{
+				if (raster[i] == 0)
+				{
+					int originalValue = Interlocked.CompareExchange(ref raster[i], Program.Maximum, 0);
+
+					if (originalValue == 0)
+					{
+						Interlocked.Increment(ref changes);
+					}
 				}
 			});
 
