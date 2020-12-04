@@ -9,23 +9,9 @@ namespace RasterCostDistance
 	using System.IO;
 	using System.Threading;
 	using System.Threading.Tasks;
-	using MaxRev.Gdal.Core;
-	using OSGeo.GDAL;
 
 	public sealed class Program
 	{
-		private static int cols;
-
-		private static Driver driver;
-
-		private static bool hasNoDataValue;
-
-		private static double noDataValue;
-
-		private static string projection;
-
-		private static int rows;
-
 		private static string Extension => "tif";
 
 		private static string InputDirectory { get; } = @"data";
@@ -38,9 +24,13 @@ namespace RasterCostDistance
 		// Use 0 to disable a limit
 		private static int Maximum => 250;
 
+		// Consider N4 or N8 neighborhood for calculating distance
+		// N4 only considers left, right, top and bottom neighbors; N8 adds diagonals
+		private static Func<Raster, int, int, int> NeighborFunction { get; } = Program.UpdateNeighborsN8;
+
 		private static string OutputDirectory { get; } = @"data/results";
 
-		private static string OutputFileName { get; } = "settlements_clipped_250max_b";
+		private static string OutputFileName { get; } = "settlements_clipped_250max_d";
 
 		private static string OutputFilePath { get; } = @$"{Program.OutputDirectory}/{Program.OutputFileName}.{Program.Extension}";
 
@@ -48,10 +38,9 @@ namespace RasterCostDistance
 
 		public static void Main()
 		{
-			GdalBase.ConfigureAll();
 			Stopwatch stopwatch = Stopwatch.StartNew();
 
-			int[] raster = Program.LoadRaster();
+			Raster raster = Raster.Load(Program.InputFilePath);
 
 			if (raster is null)
 			{
@@ -79,13 +68,24 @@ namespace RasterCostDistance
 				Console.WriteLine($"{stopwatch.Elapsed} -> Remaining cells updated to {Program.Maximum}: {changes} changes.");
 			}
 
-			Program.WriteRaster(raster);
+			if (!Directory.Exists(Program.OutputDirectory))
+			{
+				Directory.CreateDirectory(Program.OutputDirectory);
+			}
+
+			raster.Write(Program.OutputFilePath, Program.OutputOptions);
+
+			if (File.Exists($@"{Program.InputDirectory}/{Program.InputFileName}.tfw"))
+			{
+				File.Copy($@"{Program.InputDirectory}/{Program.InputFileName}.tfw",
+					$@"{Program.OutputDirectory}/{Program.OutputFileName}.tfw", true);
+			}
 
 			stopwatch.Stop();
 			Console.WriteLine($"{stopwatch.Elapsed} -> Raster saved");
 		}
 
-		private static int ExpandToNeighbors(int[] raster, int currentMax)
+		private static int ExpandToNeighbors(Raster raster, int currentMax)
 		{
 			int changes = 0;
 
@@ -97,11 +97,11 @@ namespace RasterCostDistance
 				currentMax = Program.Maximum;
 			}
 
-			Parallel.For(0, raster.Length, i =>
+			Parallel.For(0, raster.Cells.Length, i =>
 			{
-				if (raster[i] == currentMax)
+				if (raster.Cells[i] == currentMax)
 				{
-					int c = Program.UpdateNeighbors(raster, i, newValue);
+					int c = Program.NeighborFunction(raster, i, newValue);
 					Interlocked.Add(ref changes, c);
 				}
 			});
@@ -109,15 +109,15 @@ namespace RasterCostDistance
 			return changes;
 		}
 
-		private static int FillRemaining(int[] raster)
+		private static int FillRemaining(Raster raster)
 		{
 			int changes = 0;
 
-			Parallel.For(0, raster.Length, i =>
+			Parallel.For(0, raster.Cells.Length, i =>
 			{
-				if (raster[i] == 0)
+				if (raster.Cells[i] == 0)
 				{
-					int originalValue = Interlocked.CompareExchange(ref raster[i], Program.Maximum, 0);
+					int originalValue = Interlocked.CompareExchange(ref raster.Cells[i], Program.Maximum, 0);
 
 					if (originalValue == 0)
 					{
@@ -129,53 +129,15 @@ namespace RasterCostDistance
 			return changes;
 		}
 
-		private static (int x, int y) IndexToRowsCols(int i) => (i % Program.cols, i / Program.cols);
-
-		private static int[] LoadRaster()
-		{
-			if (!File.Exists(Program.InputFilePath))
-			{
-				return null;
-			}
-
-			try
-			{
-				using Dataset dataset = Gdal.Open(Program.InputFilePath, Access.GA_ReadOnly);
-				Band band = dataset.GetRasterBand(1);
-
-				// Get and store raster metadata
-				Program.driver = dataset.GetDriver();
-				Program.projection = dataset.GetProjection();
-				Program.cols = band.XSize;
-				Program.rows = band.YSize;
-				band.GetNoDataValue(out Program.noDataValue, out int hasVal);
-				Program.hasNoDataValue = hasVal == 1;
-
-				int[] buffer = new int[band.XSize * band.YSize];
-				band.ReadRaster(0, 0, band.XSize, band.YSize, buffer, band.XSize, band.YSize, 0, 0);
-
-				return buffer;
-			}
-#pragma warning disable CA1031 // Do not catch general exception types
-			catch (Exception e)
-			{
-				Console.WriteLine(e);
-				return null;
-			}
-#pragma warning restore CA1031 // Do not catch general exception types
-		}
-
-		private static int RowsColsToIndex(int x, int y) => x + (y * Program.cols);
-
 		// Update the neighbor if it still has its default setting (0)
-		private static int UpdateNeighbor(int[] raster, int x, int y, int newValue)
+		private static int UpdateNeighbor(Raster raster, int x, int y, int newValue)
 		{
-			int i = Program.RowsColsToIndex(x, y);
+			int i = raster.RowsColsToIndex(x, y);
 
-			if (raster[i] == 0)
+			if (raster.Cells[i] == 0)
 			{
 				// Set newValue if array item is still 0 (thread safe)
-				int originalValue = Interlocked.CompareExchange(ref raster[i], newValue, 0);
+				int originalValue = Interlocked.CompareExchange(ref raster.Cells[i], newValue, 0);
 
 				if (originalValue == 0)
 				{
@@ -186,25 +148,14 @@ namespace RasterCostDistance
 			return 0;
 		}
 
-		// Updating N8 neighbors
-		private static int UpdateNeighbors(int[] raster, int i, int newValue)
+		private static int UpdateNeighborsN4(Raster raster, int i, int newValue)
 		{
 			int changes = 0;
-			(int x, int y) = Program.IndexToRowsCols(i);
-
-			if (x > 0 && y > 0)
-			{
-				changes += Program.UpdateNeighbor(raster, x - 1, y - 1, newValue);
-			}
+			(int x, int y) = raster.IndexToRowsCols(i);
 
 			if (x > 0)
 			{
 				changes += Program.UpdateNeighbor(raster, x - 1, y, newValue);
-			}
-
-			if (x > 0 && y < Program.rows - 1)
-			{
-				changes += Program.UpdateNeighbor(raster, x - 1, y + 1, newValue);
 			}
 
 			if (y > 0)
@@ -212,58 +163,45 @@ namespace RasterCostDistance
 				changes += Program.UpdateNeighbor(raster, x, y - 1, newValue);
 			}
 
-			if (y < Program.rows - 1)
+			if (y < raster.Rows - 1)
 			{
 				changes += Program.UpdateNeighbor(raster, x, y + 1, newValue);
 			}
 
-			if (x < Program.cols - 1 && y > 0)
-			{
-				changes += Program.UpdateNeighbor(raster, x + 1, y - 1, newValue);
-			}
-
-			if (x < Program.cols - 1)
+			if (x < raster.Cols - 1)
 			{
 				changes += Program.UpdateNeighbor(raster, x + 1, y, newValue);
-			}
-
-			if (x < Program.cols - 1 && y < Program.rows - 1)
-			{
-				changes += Program.UpdateNeighbor(raster, x + 1, y + 1, newValue);
 			}
 
 			return changes;
 		}
 
-		private static void WriteRaster(int[] raster)
+		private static int UpdateNeighborsN8(Raster raster, int i, int newValue)
 		{
-			if (!Directory.Exists(Program.OutputDirectory))
+			int changes = Program.UpdateNeighborsN4(raster, i, newValue);
+			(int x, int y) = raster.IndexToRowsCols(i);
+
+			if (x > 0 && y > 0)
 			{
-				Directory.CreateDirectory(Program.OutputDirectory);
+				changes += Program.UpdateNeighbor(raster, x - 1, y - 1, newValue);
 			}
 
-			if (File.Exists(Program.OutputFilePath))
+			if (x > 0 && y < raster.Rows - 1)
 			{
-				File.Delete(Program.OutputFilePath);
+				changes += Program.UpdateNeighbor(raster, x - 1, y + 1, newValue);
 			}
 
-			using Dataset dataset = Program.driver.Create(Program.OutputFilePath, Program.cols, Program.rows, 1, DataType.GDT_Int32,
-				Program.OutputOptions);
-			dataset.SetProjection(Program.projection);
-			Band band = dataset.GetRasterBand(1);
-
-			if (Program.hasNoDataValue)
+			if (x < raster.Cols - 1 && y > 0)
 			{
-				band.SetNoDataValue(Program.noDataValue);
+				changes += Program.UpdateNeighbor(raster, x + 1, y - 1, newValue);
 			}
 
-			band.WriteRaster(0, 0, Program.cols, Program.rows, raster, Program.cols, Program.rows, 0, 0);
-
-			if (File.Exists($@"{Program.InputDirectory}/{Program.InputFileName}.tfw"))
+			if (x < raster.Cols - 1 && y < raster.Rows - 1)
 			{
-				File.Copy($@"{Program.InputDirectory}/{Program.InputFileName}.tfw",
-					$@"{Program.OutputDirectory}/{Program.OutputFileName}.tfw", true);
+				changes += Program.UpdateNeighbor(raster, x + 1, y + 1, newValue);
 			}
+
+			return changes;
 		}
 	}
 }
