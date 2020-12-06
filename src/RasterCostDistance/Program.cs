@@ -26,7 +26,7 @@ namespace RasterCostDistance
 
 		// Consider N4 or N8 neighborhood for calculating distance
 		// N4 only considers left, right, top and bottom neighbors; N8 adds diagonals
-		private static Func<Raster, int, int, int> NeighborFunction { get; } = Program.UpdateNeighborsN8;
+		private static Func<Raster, int, int, int> NeighborFunction { get; } = Program.UpdateNeighborsHybrid;
 
 		private static string OutputDirectory { get; } = @"data/results";
 
@@ -146,6 +146,11 @@ namespace RasterCostDistance
 			}
 
 			return 0;
+		}
+
+		private static int UpdateNeighborsHybrid(Raster raster, int i, int newValue)
+		{
+			return newValue % 2 == 0 ? Program.UpdateNeighborsN4(raster, i, newValue) : Program.UpdateNeighborsN8(raster, i, newValue);
 		}
 
 		private static int UpdateNeighborsN4(Raster raster, int i, int newValue)
